@@ -395,9 +395,14 @@ deploy/
   ufm-mock.yaml           namespace, Secret, ConfigMap topology, Deployment, Service, client
   ufm-mock-nodeport.yaml  NodePort so the host port mapping reaches the mock
   ufm-efs.yaml            EFS plugin + Fluentd-compatible collector
+docs/
+  NVIDIA_UFM_WORKFLOW.md  real-product architecture and telemetry→action flow
 ```
 
 ## References
+
+- [docs/NVIDIA_UFM_WORKFLOW.md](docs/NVIDIA_UFM_WORKFLOW.md) — how the real UFM is put
+  together, and the closed loop from a port counter to an isolated port
 
 - [NVIDIA UFM product page](https://www.nvidia.com/en-us/networking/infiniband/ufm/)
 - [UFM Enterprise REST API Guide v6.25.1](https://networking-docs.nvidia.com/ufmenterpriserestapi/6251)
