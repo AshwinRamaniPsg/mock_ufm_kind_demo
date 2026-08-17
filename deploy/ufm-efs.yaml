@@ -1,0 +1,165 @@
+---
+# The EFS pipeline: mock UFM --syslog/UDP--> EFS plugin --Fluent Forward--> collector
+#
+# Mirrors the real deployment, where mellanox/ufm-plugin-efs runs beside UFM and
+# ships events to a Fluentd destination. That image is amd64-only and last
+# published in 2024, so this uses the Go stand-in with the same config schema.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ufm-efs
+  namespace: ufm-demo
+  labels:
+    app: ufm-efs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ufm-efs
+  template:
+    metadata:
+      labels:
+        app: ufm-efs
+    spec:
+      containers:
+        - name: efs
+          image: ufm-mock:dev
+          imagePullPolicy: IfNotPresent
+          args: ["efs"]
+          ports:
+            - name: syslog
+              containerPort: 5140
+              protocol: UDP
+            - name: api
+              containerPort: 8989
+          env:
+            - name: EFS_LISTEN
+              value: "0.0.0.0:8989"
+            - name: EFS_SYSLOG_HOST
+              value: "0.0.0.0"
+            - name: EFS_SYSLOG_PORT
+              value: "5140"
+            - name: EFS_FLUENT_HOST
+              value: ufm-collector.ufm-demo.svc.cluster.local
+            - name: EFS_FLUENT_PORT
+              value: "24225"
+            - name: EFS_STREAMING
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /plugin/efs/health
+              port: api
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ufm-efs
+  namespace: ufm-demo
+  labels:
+    app: ufm-efs
+spec:
+  selector:
+    app: ufm-efs
+  ports:
+    - name: syslog
+      port: 5140
+      targetPort: syslog
+      protocol: UDP
+    - name: api
+      port: 8989
+      targetPort: api
+---
+# Publishes the EFS config API on the host at 127.0.0.1:8989.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ufm-efs-nodeport
+  namespace: ufm-demo
+spec:
+  type: NodePort
+  selector:
+    app: ufm-efs
+  ports:
+    - name: api
+      port: 8989
+      targetPort: api
+      nodePort: 30989
+---
+# Stands in for Fluentd: speaks the Fluent Forward protocol and logs whatever
+# it receives, so `kubectl logs` is the demo. Point EFS at a real Fluentd
+# instead by changing EFS_FLUENT_HOST above.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ufm-collector
+  namespace: ufm-demo
+  labels:
+    app: ufm-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ufm-collector
+  template:
+    metadata:
+      labels:
+        app: ufm-collector
+    spec:
+      containers:
+        - name: collector
+          image: ufm-mock:dev
+          imagePullPolicy: IfNotPresent
+          args: ["sink"]
+          ports:
+            - name: forward
+              containerPort: 24225
+          env:
+            - name: SINK_LISTEN
+              value: "0.0.0.0:24225"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ufm-collector
+  namespace: ufm-demo
+  labels:
+    app: ufm-collector
+spec:
+  selector:
+    app: ufm-collector
+  ports:
+    - name: forward
+      port: 24225
+      targetPort: forward

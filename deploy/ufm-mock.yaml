@@ -1,0 +1,172 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ufm-demo
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ufm-mock-auth
+  namespace: ufm-demo
+type: Opaque
+stringData:
+  # Clients send this as "Authorization: Basic <token>", matching how NICo's
+  # RestIBFabric client authenticates against /ufmRestV3.
+  token: demo-token
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ufm-mock-topology
+  namespace: ufm-demo
+data:
+  # A complete, versioned inventory snapshot. Edit and restart to change the
+  # fabric, or POST a new generation to /admin/inventory at runtime.
+  topology.json: |
+    {
+      "inventory_id": "demo-inventory",
+      "epoch_id": "epoch-1",
+      "generation": 1,
+      "machines": [
+        {
+          "mat_id": "mat-demo-a",
+          "machine_id": "gpu-node-001",
+          "infiniband_ports": [
+            {"guid": "0xb8cef60300000001", "state": "active"},
+            {"guid": "0xb8cef60300000002", "state": "active"}
+          ]
+        },
+        {
+          "mat_id": "mat-demo-a",
+          "machine_id": "gpu-node-002",
+          "infiniband_ports": [
+            {"guid": "0xb8cef60300000003", "state": "active"},
+            {"guid": "0xb8cef60300000004", "state": "down"}
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ufm-mock
+  namespace: ufm-demo
+  labels:
+    app: ufm-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ufm-mock
+  template:
+    metadata:
+      labels:
+        app: ufm-mock
+    spec:
+      containers:
+        - name: ufm-mock
+          image: ufm-mock:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9888
+          env:
+            - name: UFM_MOCK_LISTEN
+              value: "0.0.0.0:9888"
+            - name: UFM_MOCK_VERSION
+              value: "6.18.0"
+            - name: UFM_MOCK_SEED
+              value: /etc/ufm/topology.json
+            - name: UFM_MOCK_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ufm-mock-auth
+                  key: token
+          volumeMounts:
+            - name: topology
+              mountPath: /etc/ufm
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            # Numeric UID is required: kubelet cannot verify distroless's
+            # named "nonroot" user against runAsNonRoot.
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: topology
+          configMap:
+            name: ufm-mock-topology
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ufm-mock
+  namespace: ufm-demo
+  labels:
+    app: ufm-mock
+spec:
+  selector:
+    app: ufm-mock
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# A throwaway client pod. Exec into it to drive the mock from inside the
+# cluster: kubectl -n ufm-demo exec -it deploy/ufm-client -- sh
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ufm-client
+  namespace: ufm-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ufm-client
+  template:
+    metadata:
+      labels:
+        app: ufm-client
+    spec:
+      containers:
+        - name: client
+          image: curlimages/curl:latest
+          command: ["sleep", "infinity"]
+          env:
+            - name: UFM_URL
+              value: http://ufm-mock.ufm-demo.svc.cluster.local
+            - name: UFM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ufm-mock-auth
+                  key: token
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi

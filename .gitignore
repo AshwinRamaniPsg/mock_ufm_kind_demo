@@ -1,0 +1,14 @@
+# Build output. `go build -o ufm-mock .` for a local run, `-o dist/ufm-mock`
+# for the static linux binary the Dockerfile copies in.
+/ufm-mock
+/dist/
+
+# Local-only Claude Code permissions, per-developer.
+.claude/settings.local.json
+
+# Go test and coverage artifacts.
+*.test
+*.out
+
+# macOS
+.DS_Store

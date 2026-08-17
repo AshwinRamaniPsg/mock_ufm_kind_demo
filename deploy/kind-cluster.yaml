@@ -1,0 +1,19 @@
+---
+# Single-node kind cluster dedicated to the mock UFM demo.
+#
+# The extra port mapping publishes the mock's NodePort straight onto the host,
+# so http://127.0.0.1:9888 works from the laptop with no port-forward running.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ufm-demo
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # mock UFM REST + dashboard
+      - containerPort: 30888
+        hostPort: 9888
+        protocol: TCP
+      # EFS plugin configuration API
+      - containerPort: 30989
+        hostPort: 8989
+        protocol: TCP
