@@ -8,8 +8,14 @@
 #
 # The binary is static (CGO_ENABLED=0) and makes no outbound TLS calls, so it
 # needs neither libc nor CA certificates.
-FROM scratch
+
+# Use a minimal builder to ensure proper permissions
+FROM busybox:latest AS builder
 COPY dist/ufm-mock /ufm-mock
+RUN chmod 755 /ufm-mock
+
+FROM scratch
+COPY --from=builder /ufm-mock /ufm-mock
 EXPOSE 9888
 # Numeric so Kubernetes can verify runAsNonRoot; scratch has no /etc/passwd.
 USER 65532:65532
